@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: micelio_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mi_admin
+      POSTGRES_PASSWORD: mi8440
+      POSTGRES_DB: mi_local
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer
+    container_name: micelio_visor
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "127.0.0.1:8080:8080"
