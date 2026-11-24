@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: mi8440
       POSTGRES_DB: mi_local
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${PG_PORT:-5432}:5432"
     volumes:
       - ./pgdata:/var/lib/postgresql/data
 
@@ -20,3 +20,23 @@ services:
       ADMINER_DEFAULT_SERVER: postgres
     ports:
       - "127.0.0.1:8080:8080"
+
+  # En Ubuntu (Linux), levanta también este servicio con:
+  #   docker compose --profile ubuntu up -d --build
+  # (En macOS Docker Desktop no pasa puertos /dev/cu.usbserial-* al contenedor,
+  #  por eso en Mac se ejecuta backend/bridge_sensores.py con venv).
+  bridge:
+    build: ./backend
+    container_name: micelio_bridge
+    profiles: ["ubuntu"]
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyUSB0}
+      BAUD_RATE: ${BAUD_RATE:-115200}
+      DATABASE_URL: postgresql://mi_admin:mi8440@postgres:5432/mi_local
+    devices:
+      - "${SERIAL_PORT:-/dev/ttyUSB0}:${SERIAL_PORT:-/dev/ttyUSB0}"
+    ports:
+      - "8000:8000"

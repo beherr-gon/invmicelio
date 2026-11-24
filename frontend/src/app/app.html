@@ -1,0 +1,191 @@
+<main class="page">
+  <header class="page-header">
+    <div>
+      <h1>Monitor de Micelio</h1>
+      <p class="subtitle">Lecturas de sensores en tiempo real desde ESP32 y PostgreSQL</p>
+    </div>
+
+    <div
+      class="status-pill"
+      [class.status-ok]="estadoConexion() === 'conectado'"
+      [class.status-warn]="estadoConexion() === 'conectando'"
+      [class.status-err]="estadoConexion() === 'desconectado'"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="status-dot" aria-hidden="true"></span>
+      @switch (estadoConexion()) {
+        @case ('conectado') { En vivo }
+        @case ('conectando') { Conectando... }
+        @default { Reconectando... }
+      }
+    </div>
+  </header>
+
+  @if (errorCarga()) {
+    <div class="alert-error" role="alert">
+      {{ errorCarga() }}
+    </div>
+  }
+
+  <section class="controls-bar" aria-label="Filtros de visualización">
+    <div class="selector-group">
+      <label for="sensor-selector" class="selector-label">Sensor a visualizar</label>
+      <select
+        id="sensor-selector"
+        name="sensor-selector"
+        class="sensor-select"
+        [value]="sensorSeleccionado()"
+        (change)="onSeleccionarSensor($event)"
+      >
+        <option value="ALL">Todos los sensores (resumen en vivo)</option>
+
+        @if (sensoresConDatos().length > 0) {
+          <optgroup label="Sensores con lecturas activas">
+            @for (sensor of sensoresConDatos(); track sensor.codigo_sensor) {
+              <option [value]="sensor.codigo_sensor">
+                {{ sensor.codigo_sensor }} — {{ sensor.nombre_etiqueta }} ({{ sensor.unidad_medida }})
+              </option>
+            }
+          </optgroup>
+        }
+
+        @if (sensoresSinDatos().length > 0) {
+          <optgroup label="Otros sensores configurados">
+            @for (sensor of sensoresSinDatos(); track sensor.codigo_sensor) {
+              <option [value]="sensor.codigo_sensor">
+                {{ sensor.codigo_sensor }} — {{ sensor.nombre_etiqueta }} ({{ sensor.unidad_medida }})
+              </option>
+            }
+          </optgroup>
+        }
+      </select>
+    </div>
+
+    @if (sensorSeleccionado() === 'ALL') {
+      <label class="toggle-label">
+        <input
+          type="checkbox"
+          [checked]="soloConDatos()"
+          (change)="onToggleSoloConDatos($event)"
+        />
+        <span>Mostrar solo sensores con datos ({{ sensoresConDatos().length }}/{{ sensores().length }})</span>
+      </label>
+    } @else if (detalleSensorActual(); as detalle) {
+      <div class="sensor-summary-pill">
+        <span class="summary-value">
+          {{ formatearValor(detalle.valor, detalle.unidad_medida) }}
+        </span>
+        <span class="summary-meta">
+          {{ detalle.tipo_sensor }} · {{ detalle.ambiente ?? 'Sin ambiente' }}
+        </span>
+      </div>
+    }
+  </section>
+
+  <section class="table-card">
+    @if (sensorSeleccionado() === 'ALL') {
+      <div
+        tabindex="0"
+        role="region"
+        aria-labelledby="tabla-resumen-caption"
+        class="table-wrapper"
+      >
+        <table class="data-table table-summary">
+          <caption id="tabla-resumen-caption">
+            Última lectura registrada por sensor
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Sensor</th>
+              <th scope="col">Valor</th>
+              <th scope="col">Tipo</th>
+              <th scope="col">Ambiente</th>
+              <th scope="col">Ubicación</th>
+              <th scope="col">Última lectura</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (fila of resumenVisible(); track fila.codigo_sensor) {
+              <tr>
+                <th scope="row">
+                  <span class="sensor-code">{{ fila.codigo_sensor }}</span>
+                  <span class="sensor-name">{{ fila.nombre_etiqueta }}</span>
+                </th>
+                <td class="cell-value" [class.cell-empty]="fila.valor === null">
+                  {{ formatearValor(fila.valor, fila.unidad_medida) }}
+                </td>
+                <td>{{ fila.tipo_sensor }}</td>
+                <td>{{ fila.ambiente ?? '—' }}</td>
+                <td class="cell-mono">{{ fila.ubicacion_hardware ?? '—' }}</td>
+                <td class="cell-time">{{ formatearFecha(fila.fecha_hora) }}</td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6" class="empty-state">
+                  Esperando sensores desde PostgreSQL...
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div
+        tabindex="0"
+        role="region"
+        aria-labelledby="tabla-historial-caption"
+        class="table-wrapper"
+      >
+        <table class="data-table table-history">
+          <caption id="tabla-historial-caption">
+            Historial en vivo de {{ sensorSeleccionado() }}
+            @if (detalleSensorActual(); as detalle) {
+              — {{ detalle.nombre_etiqueta }} ({{ detalle.unidad_medida }})
+            }
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Fecha y hora</th>
+              <th scope="col">Valor</th>
+              <th scope="col">Crudo (ADC)</th>
+              <th scope="col">Sensor</th>
+              <th scope="col">Ambiente</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (cargandoHistorial()) {
+              <tr>
+                <td colspan="5" class="empty-state">Cargando historial...</td>
+              </tr>
+            } @else {
+              @for (item of historial(); track item.id) {
+                <tr>
+                  <th scope="row" class="cell-time">
+                    {{ formatearFecha(item.fecha_hora) }}
+                  </th>
+                  <td class="cell-value">
+                    {{ formatearValor(item.valor, item.unidad_medida) }}
+                  </td>
+                  <td class="cell-mono">
+                    {{ item.valor_crudo !== null ? item.valor_crudo : '—' }}
+                  </td>
+                  <td>
+                    <span class="sensor-code">{{ item.codigo_sensor }}</span>
+                  </td>
+                  <td>{{ item.ambiente ?? '—' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5" class="empty-state">
+                    Todavía no hay lecturas registradas para {{ sensorSeleccionado() }}.
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+</main>
